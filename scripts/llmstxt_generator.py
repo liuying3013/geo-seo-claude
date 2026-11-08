@@ -26,6 +26,17 @@ DEFAULT_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+def decoded_text(response) -> str:
+    """Return the response body as text, detecting the charset when none is declared.
+
+    requests falls back to ISO-8859-1 for text/* responses without a charset,
+    which garbles UTF-8 pages (Arabic, en dashes, m²) served as plain text/html.
+    """
+    if "charset" not in response.headers.get("Content-Type", "").lower():
+        response.encoding = response.apparent_encoding or "utf-8"
+    return response.text
+
+
 
 def validate_llmstxt(url: str) -> dict:
     """Check if llms.txt exists and validate its format."""
@@ -58,8 +69,8 @@ def validate_llmstxt(url: str) -> dict:
         response = requests.get(llms_url, headers=DEFAULT_HEADERS, timeout=15)
         if response.status_code == 200:
             result["exists"] = True
-            result["content"] = response.text
-            content = response.text
+            content = decoded_text(response)
+            result["content"] = content
 
             # Validate format
             lines = content.strip().split("\n")
@@ -142,7 +153,7 @@ def generate_llmstxt(url: str, max_pages: int = 30) -> dict:
     # Fetch homepage
     try:
         response = requests.get(url, headers=DEFAULT_HEADERS, timeout=30)
-        soup = BeautifulSoup(response.text, "lxml")
+        soup = BeautifulSoup(decoded_text(response), "lxml")
     except Exception as e:
         result["error"] = f"Failed to fetch homepage: {str(e)}"
         return result
@@ -250,7 +261,7 @@ def generate_llmstxt(url: str, max_pages: int = 30) -> dict:
                 # Try to fetch page description
                 try:
                     page_resp = requests.get(page["url"], headers=DEFAULT_HEADERS, timeout=10)
-                    page_soup = BeautifulSoup(page_resp.text, "lxml")
+                    page_soup = BeautifulSoup(decoded_text(page_resp), "lxml")
                     page_meta = page_soup.find("meta", attrs={"name": "description"})
                     page_desc = page_meta.get("content", "") if page_meta else ""
                     if page_desc:

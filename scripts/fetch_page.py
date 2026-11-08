@@ -32,6 +32,17 @@ DEFAULT_HEADERS = {
     "Accept-Encoding": "gzip, deflate",
 }
 
+def decoded_text(response) -> str:
+    """Return the response body as text, detecting the charset when none is declared.
+
+    requests falls back to ISO-8859-1 for text/* responses without a charset,
+    which garbles UTF-8 pages (Arabic, en dashes, m²) served as plain text/html.
+    """
+    if "charset" not in response.headers.get("Content-Type", "").lower():
+        response.encoding = response.apparent_encoding or "utf-8"
+    return response.text
+
+
 
 def fetch_page(url: str, timeout: int = 30) -> dict:
     """Fetch a page and return structured analysis data."""
@@ -92,7 +103,7 @@ def fetch_page(url: str, timeout: int = 30) -> dict:
             result["security_headers"][header] = response.headers.get(header, None)
 
         # Parse HTML
-        soup = BeautifulSoup(response.text, "lxml")
+        soup = BeautifulSoup(decoded_text(response), "lxml")
 
         # Title
         title_tag = soup.find("title")
@@ -244,16 +255,17 @@ def fetch_robots_txt(url: str, timeout: int = 15) -> dict:
 
         if response.status_code == 200:
             result["exists"] = True
-            result["content"] = response.text
+            content = decoded_text(response)
+            result["content"] = content
             # Cloudflare's managed robots.txt prepends this block to the origin
             # file and disallows GPTBot, ClaudeBot, Google-Extended and others,
             # often without the site owner realising it is switched on.
             result["cloudflare_managed"] = (
-                "# begin cloudflare managed content" in response.text.lower()
+                "# begin cloudflare managed content" in content.lower()
             )
 
             # Parse for each AI crawler
-            lines = response.text.split("\n")
+            lines = content.split("\n")
             current_agent = None
             agent_rules = {}
 
@@ -341,7 +353,7 @@ def fetch_llms_txt(url: str, timeout: int = 15) -> dict:
             )
             if response.status_code == 200:
                 result[key]["exists"] = True
-                result[key]["content"] = response.text
+                result[key]["content"] = decoded_text(response)
         except Exception as e:
             result["errors"].append(f"Error checking {check_url}: {str(e)}")
 
@@ -428,7 +440,7 @@ def crawl_sitemap(url: str, max_pages: int = 50, timeout: int = 15) -> list:
                 sitemap_url, headers=DEFAULT_HEADERS, timeout=timeout
             )
             if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "lxml")
+                soup = BeautifulSoup(decoded_text(response), "lxml")
 
                 # Check for sitemap index
                 for sitemap in soup.find_all("sitemap"):
@@ -442,7 +454,7 @@ def crawl_sitemap(url: str, max_pages: int = 50, timeout: int = 15) -> list:
                                 timeout=timeout,
                             )
                             if child_resp.status_code == 200:
-                                child_soup = BeautifulSoup(child_resp.text, "lxml")
+                                child_soup = BeautifulSoup(decoded_text(child_resp), "lxml")
                                 for url_tag in child_soup.find_all("url"):
                                     loc_tag = url_tag.find("loc")
                                     if loc_tag:
@@ -491,7 +503,7 @@ if __name__ == "__main__":
         data = {"pages": pages, "count": len(pages)}
     elif mode == "blocks":
         response = requests.get(target_url, headers=DEFAULT_HEADERS, timeout=30)
-        data = extract_content_blocks(response.text)
+        data = extract_content_blocks(decoded_text(response))
     elif mode == "full":
         data = {
             "page": fetch_page(target_url),

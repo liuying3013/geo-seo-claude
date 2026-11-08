@@ -22,6 +22,17 @@ except ImportError:
     print("ERROR: Required packages not installed. Run: pip install -r requirements.txt")
     sys.exit(1)
 
+def decoded_text(response) -> str:
+    """Return the response body as text, detecting the charset when none is declared.
+
+    requests falls back to ISO-8859-1 for text/* responses without a charset,
+    which garbles UTF-8 pages (Arabic, en dashes, m²) served as plain text/html.
+    """
+    if "charset" not in response.headers.get("Content-Type", "").lower():
+        response.encoding = response.apparent_encoding or "utf-8"
+    return response.text
+
+
 
 def score_passage(text: str, heading: Optional[str] = None) -> dict:
     """Score a single passage for AI citability (0-100)."""
@@ -258,7 +269,7 @@ def analyze_page_citability(url: str) -> dict:
     except Exception as e:
         return {"error": f"Failed to fetch page: {str(e)}"}
 
-    soup = BeautifulSoup(response.text, "lxml")
+    soup = BeautifulSoup(decoded_text(response), "lxml")
 
     # Remove non-content elements
     for element in soup.find_all(
